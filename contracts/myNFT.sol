@@ -400,6 +400,17 @@ contract ERC721 is Context, ERC165, ERC2981, IERC721, IERC721Metadata, IERC721En
         _baseURI = baseURI_;
     }
 
+    /**
+     * @dev Sets `_tokenURI` as the tokenURI of `tokenId`.
+     *
+     * Requirements:
+     *
+     * - `tokenId` must exist.
+     */
+    function _setTokenURI(uint256 tokenId, string memory _tokenURI) internal virtual {
+        require(_exists(tokenId), "ERC721Metadata: URI set of nonexistent token");
+        _tokenURIs[tokenId] = _tokenURI;
+    }
 }
 
 // main contract to handle NFT generation & management
