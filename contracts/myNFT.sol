@@ -1,5 +1,5 @@
 
-// contracts/GameItem.sol
+// contracts/myNFT.sol
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
@@ -265,6 +265,8 @@ contract ERC721 is Context, ERC165, ERC2981, IERC721, IERC721Metadata, IERC721En
         _tokenOwners.set(tokenId, to);
 
         emit Transfer(address(0), to, tokenId);
+
+        _afterTokenTransfer(address(0), to, tokenId);
     }
 
     /**
@@ -348,7 +350,7 @@ contract ERC721 is Context, ERC165, ERC2981, IERC721, IERC721Metadata, IERC721En
 
     /**
      * @dev Transfers `tokenId` from `from` to `to`.
-     *  As opposed to {transferFrom}, this imposes no restrictions on msg.sender.
+     *  As opposed to {transferFrom}, this imposes no restrictions on _msgSender().
      *
      * Requirements:
      *
@@ -372,6 +374,8 @@ contract ERC721 is Context, ERC165, ERC2981, IERC721, IERC721Metadata, IERC721En
         _tokenOwners.set(tokenId, to);
 
         emit Transfer(from, to, tokenId);
+
+        _afterTokenTransfer(address(0), to, tokenId);
     }
 
     /**
@@ -454,9 +458,14 @@ contract myNFT is ERC721, Ownable {
     // price per NFT in token X
     uint256 public constant pricePerNFTinTokenX = 100;
 
+    // whitelist lock flag
+    bool public whitelistModeLock = false;
+
     // change minting mode: whitelist or free?
-    enum mintingMode{ etherBase, whitelistBase, tokenXBase }
-    mintingMode public mintMode = mintingMode.etherBase;
+    enum mintingMode{   etherPurchased, 
+                        whitelistBased, 
+                        tokenXPurchased }
+    mintingMode public mintMode = mintingMode.etherPurchased;
 
     // map user address to the number of token can be minted
     mapping(address => uint256) public _whiteList;
@@ -475,25 +484,31 @@ contract myNFT is ERC721, Ownable {
      // receive function to receive Ether
     receive() external payable {}
 
-    // check balance of this contract
-    function getBalance() public view returns (uint) {
+    // check Ether balance of this contract
+    function getEtherBalance() public view returns (uint) {
         return address(this).balance;
     }
 
+    // check tokenX balance of this contract
+    function getTokenXBalance() public view returns (uint) {
+        ERC20 erc20instance = ERC20(erc20ContractAddress);
+        return erc20instance.balanceOf(address(this));
+    }
+
     // withdraw ETH to the owner of this contract
-    function withdrawETH(uint256 amount) public onlyOwner {
+    function withdrawETH(uint256 amount) external onlyOwner {
         require(amount < address(this).balance, "Over withdrawal");
         payable(owner()).transfer(amount);
     }
 
     // withdraw tokenX
-    function withdrawTokenX(uint256 amount) public onlyOwner {
+    function withdrawTokenX(uint256 amount) external onlyOwner {
         ERC20 erc20instance = ERC20(erc20ContractAddress);
         uint256 balance = erc20instance.balanceOf(address(this));
-        require(amount < balance, "Over withdrawal");
+        require(amount < balance, "Over withdrawn");
         address service_provider = owner();
+        // transfer() will move tokenX from the _msgSender() - which is this contract - to the owner.
         erc20instance.transfer(service_provider, amount);
-
     }
 
     //modifier that helps check to see if the user has a specific erc20 token
@@ -514,15 +529,21 @@ contract myNFT is ERC721, Ownable {
         _setTokenURI(tokenId, _tokenURI);
     }
 
-    //set minting mode
-    function setMintingMode(uint8 mode) external onlyOwner {
-        // TODO: improve when mode doesn't belong to (1,3)
+    /**
+     * @dev set minting mode
+     * 0: style default, send Ether to mint
+     * 1: whitelist, send Ether to mint
+     * 2: send a specific erc20 token to mint
+     */
+    function setMintingMode(uint mode) public {
+        // TODO: improve when mode doesn't belong to (0,2)
         require(mintMode != mintingMode(mode), "Current minting mode is already set");
+        require(whitelistModeLock == false, "Whitelist minting hasn't taken place or finished");
         mintMode = mintingMode(mode);
     }
 
     // Set up white list
-    /**TODO: Fix 
+    /**FIXED:
      * set whitelist may get aligned with MAX_NFT, but if other mintings happen and push the boundary whitelist has set, 
      * when whitelist minting happens it exceeds MAX_NFT.
      * -> Add whitelistModeLock flag to make sure once whitelist's set, 
@@ -533,6 +554,8 @@ contract myNFT is ERC721, Ownable {
         for (uint256 i = 0; i < addresses.length; i.add(1)) {
             _whiteList[addresses[i]] = numAllowedToMint;
         }
+        setMintingMode(uint256(mintingMode.whitelistBased));
+        whitelistModeLock = true;
     }
 
     // Helper check to see how many NFT left for user to mint
@@ -542,16 +565,16 @@ contract myNFT is ERC721, Ownable {
 
     /**
      * procedure:
-     * 1) user approve this contract to spend an amount of their tokenX
-     * 2) User call this function to inform about the transaction info
+     * 1) user approves this contract to spend an amount of their tokenX
+     * 2) User calls this function to inform about the transaction info
      * 3) This contract spends their token and send the token to itself
      *
-     * This way this contract gets to know the exact number of token sent from the user
+     * This way this contract gets to know the exact number of token sent from user
     */
-    function sendTokenXToMint(uint8 numberOfNFTTokens) external hasTheXToken(_msgSender()) {
-        require((mintMode == mintingMode.tokenXBase), "Unmatched minting mode! Please reset minting mode by setMintingMode()");
+    function TokenXPurchasedMint(uint8 numberOfNFTTokens) external hasTheXToken(_msgSender()) {
+        require((mintMode == mintingMode.tokenXPurchased), "Unmatched minting mode! Please reset minting mode by setMintingMode()");
         ERC20 erc20instance = ERC20(erc20ContractAddress);
-        uint256 tokenXAllowance = erc20instance.allowance(msg.sender, address(this));
+        uint256 tokenXAllowance = erc20instance.allowance(_msgSender(), address(this));
         require (tokenXAllowance > 0, "User has not approved this contract to spend their token");
         // send token to itself
         erc20instance.transferFrom(_msgSender(), address(this), tokenXAllowance);
@@ -561,26 +584,29 @@ contract myNFT is ERC721, Ownable {
         require(pricePerNFTinTokenX.mul(numberOfNFTTokens) <= tokenXAllowance, "The amount of token X sent doesn't meet tokenX-based proce calculated");
 
         for (uint256 i = 0; i < numberOfNFTTokens; i.add(1)) {
-            _safeMint(msg.sender, totalSupply().add(i));
+            uint mintIndex = totalSupply();
+            _safeMint(_msgSender(), mintIndex);
         }
     }
 
     // Mint NFT based on whitelist
     function whiteListBasedMint(uint8 numberOfNFTTokens) external payable {
-        require((mintMode == mintingMode.whitelistBase), "Unmatched minting mode! Please reset minting mode by setMintingMode()");
-        require(numberOfNFTTokens <= _whiteList[msg.sender], "Exceeded max available to claim");
+        require((mintMode == mintingMode.whitelistBased), "Unmatched minting mode! Please reset minting mode by setMintingMode()");
+        require(numberOfNFTTokens <= _whiteList[_msgSender()], "Exceeded max available to claim");
         require(numberOfNFTTokens <= maxNFTEachMinting, "Can only mint maximally 10 tokens at a time");
         require(pricePerNFTinEther.mul(numberOfNFTTokens) <= msg.value, "Ether value sent is not sufficient");
 
-        _whiteList[msg.sender] = _whiteList[msg.sender].sub(numberOfNFTTokens);
+        _whiteList[_msgSender()] = _whiteList[_msgSender()].sub(numberOfNFTTokens);
         for (uint256 i = 0; i < numberOfNFTTokens; i.add(1)) {
-            _safeMint(msg.sender, totalSupply().add(i));
+            uint mintIndex = totalSupply();
+            _safeMint(_msgSender(), mintIndex);
         }
+        whitelistModeLock = false;
     }
 
     // Mint NFT
-    function mint(uint numberOfNFTTokens) external payable {
-        require((mintMode == mintingMode.etherBase), "Unmatched minting mode! Please reset minting mode by setMintingMode()");
+    function EtherPurchasedMint(uint numberOfNFTTokens) external payable {
+        require((mintMode == mintingMode.etherPurchased), "Unmatched minting mode! Please reset minting mode by setMintingMode()");
         require(numberOfNFTTokens <= maxNFTEachMinting, "Can only mint maximally 10 tokens at a time");
         require(totalSupply().add(numberOfNFTTokens) <= MAX_NFT, "token number exceeded");
         require(pricePerNFTinEther.mul(numberOfNFTTokens) <= msg.value, "Ether value sent is not sufficient");
