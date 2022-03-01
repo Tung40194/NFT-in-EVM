@@ -17,6 +17,7 @@ import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "@openzeppelin/contracts/utils/Address.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/utils/Counters.sol";
 
 contract ERC721 is Context, ERC165, ERC2981, IERC721, IERC721Metadata, IERC721Enumerable {
     using Address for address;
@@ -52,9 +53,6 @@ contract ERC721 is Context, ERC165, ERC2981, IERC721, IERC721Metadata, IERC721En
 
     // Base URI
     string private _base_URI;
-
-    // whitelist set of addresses
-    EnumerableSet.UintSet _whitelist;
 
     /**
      * @dev Initializes the contract by setting a `name` and a `symbol` to the token collection.
@@ -445,6 +443,10 @@ contract ERC721 is Context, ERC165, ERC2981, IERC721, IERC721Metadata, IERC721En
 // main contract to handle NFT generation & management
 contract myNFT is ERC721, Ownable {
     using SafeMath for uint256;
+    using Counters for Counters.Counter;
+
+    // private counter for making of token ID
+    Counters.Counter private _tokenIdTracker;
 
     // Maximum NFT
     uint256 public MAX_NFT;
@@ -584,8 +586,8 @@ contract myNFT is ERC721, Ownable {
         require(pricePerNFTinTokenX.mul(numberOfNFTTokens) <= tokenXAllowance, "The amount of token X sent doesn't meet tokenX-based proce calculated");
 
         for (uint256 i = 0; i < numberOfNFTTokens; i.add(1)) {
-            uint mintIndex = totalSupply();
-            _safeMint(_msgSender(), mintIndex);
+            _tokenIdTracker.increment();
+            _safeMint(_msgSender(), _tokenIdTracker.current());
         }
     }
 
@@ -598,8 +600,8 @@ contract myNFT is ERC721, Ownable {
 
         _whiteList[_msgSender()] = _whiteList[_msgSender()].sub(numberOfNFTTokens);
         for (uint256 i = 0; i < numberOfNFTTokens; i.add(1)) {
-            uint mintIndex = totalSupply();
-            _safeMint(_msgSender(), mintIndex);
+            _tokenIdTracker.increment();
+            _safeMint(_msgSender(), _tokenIdTracker.current());
         }
         whitelistModeLock = false;
     }
@@ -612,10 +614,8 @@ contract myNFT is ERC721, Ownable {
         require(pricePerNFTinEther.mul(numberOfNFTTokens) <= msg.value, "Ether value sent is not sufficient");
 
         for(uint i = 0; i < numberOfNFTTokens; i.add(1)) {
-            uint mintIndex = totalSupply();
-            if (totalSupply() < MAX_NFT) {
-                _safeMint(_msgSender(), mintIndex);
-            }
+            _tokenIdTracker.increment();
+            _safeMint(_msgSender(), _tokenIdTracker.current());
         }
     }
 }
